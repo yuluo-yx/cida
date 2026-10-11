@@ -35,7 +35,7 @@ final class SelectionImportTests: XCTestCase {
       [
         ProcessingRequest(
           text: "The storage engine is new.", mode: .translate,
-          myLanguage: "简体中文", foreignLanguage: "English")
+          myLanguage: "简体中文", foreignLanguage: "简体中文")
       ])
   }
 

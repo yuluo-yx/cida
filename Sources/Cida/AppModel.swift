@@ -414,6 +414,9 @@ final class AppModel {
     guard !isProcessing else { return }
     let value = language.modelName
     guard value != foreignLanguage else { return }
+    // A menu choice is explicit for the current editing session. Keep it when
+    // the source changes; automatic Chinese/English detection resumes only
+    // after the user chooses one of those options again.
     suppressAutomaticForeignLanguageUpdate = true
     settings.foreignLanguage = value
     suppressAutomaticForeignLanguageUpdate = false
