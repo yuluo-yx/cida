@@ -108,7 +108,11 @@ final class AppModel {
   private(set) var result: ResultRecord?
   var settings = CidaSettings() {
     didSet {
-      if settings.requestLanguages != oldValue.requestLanguages { settleSourceLanguage(animated: false) }
+      if settings.requestLanguages != oldValue.requestLanguages,
+        !updatingAutomaticForeignLanguage
+      {
+        settleSourceLanguage(animated: false)
+      }
       if !settings.actions.contains(where: { $0.id == mode }) { resetModeToDefault() }
       if firstUseState == .awaitingConfiguration, !needsModelConfiguration {
         firstUseState = result == nil && !hasSubmittableInput ? .offeringTrial : .finished
@@ -143,6 +147,7 @@ final class AppModel {
   @ObservationIgnored var sourceLanguageSettleDelay = Duration.milliseconds(
     CidaMotion.languageSettleMilliseconds)
   @ObservationIgnored private var sourceLanguageTask: Task<Void, Never>?
+  @ObservationIgnored private var updatingAutomaticForeignLanguage = false
   /// A menu selection wins over the automatic pair for the current source. The next source edit
   /// settles normally and may select the opposite Chinese/English target again.
   @ObservationIgnored private var suppressAutomaticForeignLanguageUpdate = false
@@ -411,15 +416,14 @@ final class AppModel {
 
   /// Selects one of the four supported panel targets and immediately reruns a non-empty source.
   func selectForeignLanguage(_ language: SupportedTranslationLanguage) {
-    guard !isProcessing else { return }
     let value = language.modelName
     guard value != foreignLanguage else { return }
     // A menu choice is explicit for the current editing session. Keep it when
     // the source changes; automatic Chinese/English detection resumes only
     // after the user chooses one of those options again.
-    suppressAutomaticForeignLanguageUpdate = language == .korean || language == .japanese
+    suppressAutomaticForeignLanguageUpdate = true
     settings.foreignLanguage = value
-    suppressAutomaticForeignLanguageUpdate = false
+    suppressAutomaticForeignLanguageUpdate = language == .korean || language == .japanese
     scheduleSettingsPersistence()
     if hasSubmittableInput { startGeneration() }
   }
@@ -509,7 +513,9 @@ final class AppModel {
     guard current == nil || current == .chinese || current == .english,
       foreignLanguage != target.modelName
     else { return }
+    updatingAutomaticForeignLanguage = true
     settings.foreignLanguage = target.modelName
+    updatingAutomaticForeignLanguage = false
     if persist { scheduleSettingsPersistence() }
   }
 
