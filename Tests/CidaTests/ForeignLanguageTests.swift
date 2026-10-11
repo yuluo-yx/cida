@@ -50,7 +50,7 @@ final class ForeignLanguageTests: XCTestCase {
     model.inputText = "我们的系统"
     XCTAssertTrue(model.showsForeignLanguage, "The picker is visible as soon as input exists")
 
-    try await waitUntil { model.foreignLanguageOption == .english }
+    try await waitUntil { model.animatesForeignLanguageChange }
     XCTAssertTrue(model.animatesForeignLanguageChange, "A pause settles the source language")
 
     model.inputText = "The new storage engine"

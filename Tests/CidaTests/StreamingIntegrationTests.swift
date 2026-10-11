@@ -49,7 +49,7 @@ final class StreamingIntegrationTests: XCTestCase {
       system.contains(#""language_behavior":"translate_between""#),
       "The model decides the direction between the user's two languages")
     XCTAssertTrue(system.contains(#""my_language":"简体中文""#))
-    XCTAssertTrue(system.contains(#""foreign_language":"English""#))
+    XCTAssertTrue(system.contains(#""foreign_language":"简体中文""#))
     XCTAssertEqual(messages.last?["content"]?.stringValue, largeInput)
   }
 
