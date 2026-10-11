@@ -417,7 +417,7 @@ final class AppModel {
     // A menu choice is explicit for the current editing session. Keep it when
     // the source changes; automatic Chinese/English detection resumes only
     // after the user chooses one of those options again.
-    suppressAutomaticForeignLanguageUpdate = true
+    suppressAutomaticForeignLanguageUpdate = language == .korean || language == .japanese
     settings.foreignLanguage = value
     suppressAutomaticForeignLanguageUpdate = false
     scheduleSettingsPersistence()
