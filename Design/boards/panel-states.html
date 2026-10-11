@@ -13,14 +13,14 @@
 <main class="board" data-board="panel-states">
   <div class="board-title">面板交互 · 状态(动作 = 翻译 / 改进分段选择,Tab 切换,⏎ 执行;量值 = token)</div>
 
-  <p class="caption">① 唤起 · 空态 — 顶边固定在活动屏幕可见高度 20%(panel-top-ratio)处、水平居中;高度 = 输入一行 + 控制条;动作默认「翻译」;右侧「执行 ⏎」禁用,输入后可点按执行</p>
+  <p class="caption">① 唤起 · 空态 — 初次出现在活动屏幕可见高度 20%(panel-top-ratio)处、水平居中;之后保留用户拖动后的位置;高度 = 输入一行 + 控制条;动作默认「翻译」;右侧「执行 ⏎」禁用,输入后可点按执行</p>
   <section class="panel" data-state="empty">
     <div class="source"><span class="placeholder">输入内容，回车翻译…</span></div>
     <cida-bar action="execute" disabled></cida-bar>
   </section>
   <div class="divider"></div>
 
-  <p class="caption">② 输入中 — Tab 在翻译 / 改进之间切换,⏎ 执行当前动作;原文是我的语言,「翻译」段写作「翻译成」,后面写出要译成的外语「English」,段随之 150ms 变宽;面板每换一行 +26pt,150ms(motion-height-ms)</p>
+  <p class="caption">② 输入中 — Tab 在翻译 / 改进之间切换,⏎ 执行当前动作;中文原文自动选 English,英文原文自动选 中文;「翻译」段写作「翻译成」,后面是可打开的四项目标语言菜单(中文 / English / 한국어 / 日本語);面板可从背景拖动并保留位置</p>
   <section class="panel" data-state="typing">
     <div class="source">我们的系统采用了全新的存储引擎,在保证数据一致性的前提下,显著提升了读写性能。</div>
     <cida-bar target="English" action="execute"></cida-bar>
@@ -235,16 +235,16 @@
   </section>
   <div class="divider"></div>
 
-  <p class="caption">⑰ 换一门外语 — ⌘L 或点「English」这几个字,外语就地变成可编辑的文字(全选,下方细线),「成」不动,直接输入即替换;写要译成的语言,写法任意(日本語、한국어、英式英语、文言文);⏎ 确定并重新执行,Esc 或点别处复原。不提供语言列表</p>
+  <p class="caption">⑰ 选择目标语言 — 点击「English」打开下拉菜单,可选 中文 / English / 한국어 / 日本語;中文与英文原文自动在前两项间切换,选中韩语或日语后保持该选择并重新翻译</p>
   <section class="panel" data-state="target-editing">
     <div class="source">我们的系统采用了全新的存储引擎,在保证数据一致性的前提下,显著提升了读写性能。</div>
-    <cida-bar target-editing="English" target-selected action="reexecute"></cida-bar>
+    <cida-bar target="English" target-menu-open action="reexecute"></cida-bar>
     <div class="result"><cida-result-header status="current"></cida-result-header><div class="text">Our system adopts a brand-new storage engine that significantly improves read and write performance while preserving data consistency.</div></div>
   </section>
-  <p class="caption">外语已改写 — 确认前说明会重新翻译;Esc 或点别处取消</p>
+  <p class="caption">菜单已展开 — 当前项带勾选;点选后立即重新翻译</p>
   <section class="panel" data-state="target-editing-changed">
     <div class="source">我们的系统采用了全新的存储引擎,在保证数据一致性的前提下,显著提升了读写性能。</div>
-    <cida-bar target-editing="日本語" target-changed action="reexecute"></cida-bar>
+    <cida-bar target="日本語" action="reexecute"></cida-bar>
     <div class="result"><cida-result-header status="current"></cida-result-header><div class="text">Our system adopts a brand-new storage engine that significantly improves read and write performance while preserving data consistency.</div></div>
   </section>
   <p class="caption">输入法组字 — Enter 先选词,Esc 先取消组字;不提交语言</p>

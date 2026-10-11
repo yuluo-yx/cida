@@ -58,6 +58,55 @@ enum Language: String, CaseIterable, Codable, Sendable {
   }
 }
 
+/// The target languages exposed by the panel's translation menu. The model names are kept
+/// separate from the short UI labels so existing settings such as 简体中文 remain compatible.
+enum SupportedTranslationLanguage: String, CaseIterable, Codable, Identifiable, Sendable {
+  case chinese
+  case english
+  case korean
+  case japanese
+
+  var id: Self { self }
+
+  var title: String {
+    switch self {
+    case .chinese: "中文"
+    case .english: "English"
+    case .korean: "한국어"
+    case .japanese: "日本語"
+    }
+  }
+
+  var modelName: String {
+    switch self {
+    case .chinese: "简体中文"
+    case .english: "English"
+    case .korean: "한국어"
+    case .japanese: "日本語"
+    }
+  }
+
+  static func matching(_ value: String) -> Self? {
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !normalized.isEmpty else { return nil }
+    if normalized.contains("中文") || normalized.contains("汉语") || normalized.contains("漢語")
+      || normalized.contains("chinese")
+    {
+      return .chinese
+    }
+    if normalized.contains("english") || normalized.contains("英语") || normalized.contains("英文") {
+      return .english
+    }
+    if normalized.contains("한국") || normalized.contains("korean") || normalized.contains("韩语") {
+      return .korean
+    }
+    if normalized.contains("日本") || normalized.contains("japanese") || normalized.contains("日语") {
+      return .japanese
+    }
+    return nil
+  }
+}
+
 struct ProcessingRequest: Equatable, Sendable {
   let text: String
   let mode: ProcessingMode
@@ -226,6 +275,8 @@ struct CidaSettings: Equatable, Sendable {
     "Translate the user-provided text into the target language specified by the application. Preserve meaning, tone, and terminology. Return only the translated text."
   static let defaultImprovementPrompt =
     "You are a writing assistant. Improve the user-provided text for clarity, grammar, and natural tone. Keep the original language and meaning. Prefer precise technical wording. Return only the improved text."
+
+  static let supportedTranslationLanguages = SupportedTranslationLanguage.allCases
 
   private static let currentPromptContractVersion = 2
 

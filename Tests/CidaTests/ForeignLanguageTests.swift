@@ -2,16 +2,38 @@ import XCTest
 
 @testable import Cida
 
-/// The foreign language written after 翻译 (`Design/spec/panel.md` §三,
-/// `Design/spec/streaming-motion.md` §四).
+/// The target-language picker shown after 翻译 (`Design/spec/panel.md` §三).
 @MainActor
 final class ForeignLanguageTests: XCTestCase {
-  func testTranslateCarriesTheForeignLanguageOnlyForASourceInMyLanguage() {
+  func testTranslateShowsTheTargetPickerForAnyNonEmptySource() {
     XCTAssertTrue(AppModel(inputText: "我们的系统采用了全新的存储引擎").showsForeignLanguage)
-    XCTAssertFalse(AppModel(inputText: "The new storage engine keeps every write.").showsForeignLanguage)
+    XCTAssertTrue(AppModel(inputText: "The new storage engine keeps every write.").showsForeignLanguage)
     XCTAssertFalse(AppModel(inputText: "  ").showsForeignLanguage)
     XCTAssertFalse(
       AppModel(mode: .improve, inputText: "我们的系统采用了全新的存储引擎").showsForeignLanguage)
+  }
+
+  func testChineseAndEnglishSourcesChooseTheOppositeTargetAutomatically() async throws {
+    let model = AppModel(inputText: "我们的系统")
+    XCTAssertEqual(model.foreignLanguageOption, .english)
+    XCTAssertEqual(model.foreignLanguage, "English")
+
+    model.inputText = "The new storage engine"
+    try await waitUntil { model.foreignLanguageOption == .chinese }
+    XCTAssertEqual(model.foreignLanguage, "简体中文")
+  }
+
+  func testExplicitKoreanOrJapaneseTargetIsNotOverwrittenByDetection() async throws {
+    let model = AppModel(inputText: "我们的系统", service: ImmediateStreamingService())
+    model.selectForeignLanguage(.korean)
+    model.inputText = "The new storage engine"
+    try await Task.sleep(for: .milliseconds(80))
+    XCTAssertEqual(model.foreignLanguageOption, .korean)
+
+    model.selectForeignLanguage(.japanese)
+    model.inputText = "我们的系统"
+    try await Task.sleep(for: .milliseconds(80))
+    XCTAssertEqual(model.foreignLanguageOption, .japanese)
   }
 
   func testAWordingThisMacCannotRecognizeKeepsTheForeignLanguageReachable() {
@@ -26,22 +48,25 @@ final class ForeignLanguageTests: XCTestCase {
     model.sourceLanguageSettleDelay = .milliseconds(50)
 
     model.inputText = "我们的系统"
-    XCTAssertFalse(model.showsForeignLanguage, "Nothing changes while typing continues")
+    XCTAssertTrue(model.showsForeignLanguage, "The picker is visible as soon as input exists")
 
-    try await waitUntil { model.showsForeignLanguage }
-    XCTAssertTrue(model.animatesForeignLanguageChange, "A pause writes the language in")
+    try await waitUntil { model.foreignLanguageOption == .english }
+    XCTAssertTrue(model.animatesForeignLanguageChange, "A pause settles the source language")
 
     model.inputText = "The new storage engine"
-    try await waitUntil { !model.showsForeignLanguage }
+    try await waitUntil { model.foreignLanguageOption == .chinese }
+    XCTAssertTrue(model.showsForeignLanguage)
   }
 
   func testChangingMyLanguageDecidesAgainAtOnce() {
     let model = AppModel(inputText: "The new storage engine")
-    XCTAssertFalse(model.showsForeignLanguage)
+    XCTAssertTrue(model.showsForeignLanguage)
+    XCTAssertEqual(model.foreignLanguageOption, .chinese)
 
     model.settings.myLanguage = "English"
 
     XCTAssertTrue(model.showsForeignLanguage)
+    XCTAssertEqual(model.foreignLanguageOption, .chinese)
     XCTAssertFalse(model.animatesForeignLanguageChange)
   }
 
@@ -75,8 +100,7 @@ final class ForeignLanguageTests: XCTestCase {
       inputText: "我们的系统采用了全新的存储引擎", service: service,
       saveSettings: { saved.append($0) })
 
-    XCTAssertTrue(model.beginEditingForeignLanguage())
-    model.commitForeignLanguage("  日本語 ")
+    model.selectForeignLanguage(.japanese)
 
     XCTAssertFalse(model.isEditingForeignLanguage)
     XCTAssertEqual(model.foreignLanguage, "日本語")
@@ -91,13 +115,11 @@ final class ForeignLanguageTests: XCTestCase {
     let model = AppModel(inputText: "我们的系统", service: service)
     let revision = model.foreignLanguageRewriteRevision
 
-    model.beginEditingForeignLanguage()
-    model.commitForeignLanguage("   ")
+    model.selectForeignLanguage(.english)
     XCTAssertEqual(model.foreignLanguage, "English")
-    XCTAssertEqual(model.foreignLanguageRewriteRevision, revision + 1, "The old language is written in again")
+    XCTAssertEqual(model.foreignLanguageRewriteRevision, revision)
 
-    model.beginEditingForeignLanguage()
-    model.commitForeignLanguage("English")
+    model.selectForeignLanguage(.english)
 
     try await Task.sleep(for: .milliseconds(50))
     XCTAssertTrue(service.requests.isEmpty)
@@ -134,7 +156,7 @@ final class ForeignLanguageTests: XCTestCase {
   }
 
   func testTheLanguageCannotBeRewrittenWhenItIsNotShownOrARequestRuns() {
-    XCTAssertFalse(AppModel(inputText: "The new storage engine").beginEditingForeignLanguage())
+    XCTAssertTrue(AppModel(inputText: "The new storage engine").beginEditingForeignLanguage())
 
     let model = AppModel(inputText: "我们的系统")
     let record = ResultRecord(mode: .translate, source: "我们的系统", outputLanguage: .english)
@@ -155,6 +177,34 @@ final class ForeignLanguageTests: XCTestCase {
       }
       try await Task.sleep(for: .milliseconds(5))
     }
+  }
+
+  func testSupportedLanguageMatchingKeepsLegacySettingsReadable() {
+    XCTAssertEqual(SupportedTranslationLanguage.matching("简体中文"), .chinese)
+    XCTAssertEqual(SupportedTranslationLanguage.matching("英式英语"), .english)
+    XCTAssertEqual(SupportedTranslationLanguage.matching("한국어"), .korean)
+    XCTAssertEqual(SupportedTranslationLanguage.matching("日本語"), .japanese)
+  }
+
+  func testExplicitTargetCanOverrideTheAutomaticPair() async throws {
+    let service = RecordingStreamingService()
+    let model = AppModel(inputText: "我们的系统", service: service)
+
+    model.selectForeignLanguage(.chinese)
+
+    XCTAssertEqual(model.foreignLanguageOption, .chinese)
+    try await waitUntil { service.requests.count == 1 }
+    XCTAssertEqual(service.requests.first?.foreignLanguage, "简体中文")
+  }
+
+  func testExplicitTargetIsUsedForAnEnglishSource() async throws {
+    let service = RecordingStreamingService()
+    let model = AppModel(inputText: "The new storage engine", service: service)
+    model.selectForeignLanguage(.japanese)
+
+    try await waitUntil { service.requests.count == 1 }
+    XCTAssertEqual(service.requests.first?.myLanguage, "日本語")
+    XCTAssertEqual(service.requests.first?.foreignLanguage, "日本語")
   }
 
   func testTheWordIsWrittenGlyphByGlyphWithTheResultsStroke() {

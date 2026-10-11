@@ -56,7 +56,7 @@ final class InteractionReproductionTests: XCTestCase {
     XCTAssertEqual(panel.level, .floating)
     XCTAssertTrue(panel.collectionBehavior.contains(.canJoinAllSpaces))
     XCTAssertFalse(panel.hidesOnDeactivate)
-    XCTAssertFalse(panel.isMovableByWindowBackground)
+    XCTAssertTrue(panel.isMovableByWindowBackground)
     XCTAssertEqual(panel.frame.width, 800)
     XCTAssertFalse(NSApp.isActive)
   }

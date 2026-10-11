@@ -26,9 +26,8 @@ class CidaResultHeader extends HTMLElement {
 }
 customElements.define("cida-result-header", CidaResultHeader);
 
-// target="English" writes the foreign language my language goes into after 翻译, which then
-// reads 翻译成 (spec/panel.md §三); target-editing="日本語" draws it as a field, target-selected
-// with its text selected as ⌘L leaves it.
+// target="English" draws the target-language menu after 翻译成. target-editing remains the
+// compatibility editing state for legacy keyboard flows; target-menu-open shows the menu popover.
 class CidaBar extends HTMLElement {
   connectedCallback() {
     const mode = this.getAttribute("mode") ?? "translate";
@@ -58,7 +57,19 @@ class CidaBar extends HTMLElement {
       glyphs.slice(written, Number(written) + 2).join("")}</span><span class="pending">${glyphs.slice(Number(written) + 2).join("")}</span>`;
     const objectClass = editing !== null ? " editing" : this.hasAttribute("target-leaving") ? " leaving" : "";
     const targetSelected = this.hasAttribute("target-selected");
+    const targetLabel = {
+      "简体中文": "中文",
+      "繁體中文": "中文",
+      "中文": "中文",
+      "English": "English",
+      "한국어": "한국어",
+      "日本語": "日本語",
+    }[target] ?? target;
+    const targetMenu = target !== null && editing === null
+      ? `<span class="target-menu${this.hasAttribute("target-menu-open") ? " open" : ""}"><span>${targetLabel}</span><i class="icon icon-chevron-down"></i>${this.hasAttribute("target-menu-open") ? `<span class="target-menu-popover"><b>中文</b><b class="selected">English</b><b>한국어</b><b>日本語</b></span>` : ""}</span>`
+      : "";
     const object = target === null ? ""
+      : editing === null && targetMenu !== "" ? targetMenu
       : `<span class="object${objectClass}">${targetSelected ? `<span class="selected">${word}</span>` : word}${editing !== null && !targetSelected ? `<i class="caret"></i>` : ""}</span>`;
     // 成 joins the verb and leaves with the language.
     const joint = (option) => target === null || option !== "翻译" ? ""

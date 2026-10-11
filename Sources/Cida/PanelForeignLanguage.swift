@@ -1,34 +1,27 @@
 import SwiftUI
 
-/// The foreign language written after 翻译 inside the selected segment, read as
-/// 「翻译成 English」 (`Design/spec/panel.md` §三). It shows while the source is in my language
-/// and turns into a field on ⌘L or a click. Showing and hiding it is written in and out with
-/// the result's own stroke (`Design/spec/streaming-motion.md` §四).
-///
-/// The segment's title keeps its 12 pt trailing padding. 成 starts at the end of the verb, all
-/// 12 pt into it, so a click on 成 lands on the title; the language follows 5 pt later, inside
-/// this view's own frame. A renamed 翻译 has no 成, so the language starts 7 pt into the
-/// padding, 5 pt after the name. Either way the segment ends with the same 12 pt, and collapsed
-/// to zero width it is exactly what it is without a language.
+/// The translation target menu shown after the built-in 翻译 action.
+/// Chinese and English are selected automatically from the source language; Korean and Japanese
+/// remain selected until the user chooses another target. ⌘L keeps the legacy free-form editor
+/// available for existing keyboard workflows.
 struct PanelForeignLanguage: View {
   @Bindable var model: AppModel
   static let gapAfterTitle: CGFloat = 5
-  /// How far into the title's trailing padding a language without 成 starts.
   static let titleOverlap = PanelSegmentedControlMetrics.titlePadding - gapAfterTitle
 
   @State private var isPresented = false
-  /// Seconds into writing the language in; the whole word is written at `writtenSeconds`.
+  /// Seconds into writing the target label; the label is fully visible at `writtenSeconds`.
   @State private var elapsed = 0.0
-  /// Seconds into writing 成 in. A rewritten language leaves it as it is.
+  /// Seconds into writing 成 in. A rewritten target leaves it as it is.
   @State private var jointElapsed = 0.0
-  /// 1 while 成 is written first and the language follows it, 0 when only the language is.
+  /// 1 while 成 is written first and the target follows it, 0 when only the target is shown.
   @State private var languageFirstGlyph = 0
-  /// 0 while the language is on screen, 1 once it has faded out.
+  /// 0 while the target is on screen, 1 once it has faded out.
   @State private var fade = 0.0
-  @State private var wordWidth: CGFloat = 0
+  @State private var targetWidth: CGFloat = 0
   @State private var jointGlyphWidth: CGFloat = 0
-  @State private var isHovered = false
   @State private var draftWidth: CGFloat = 0
+  @State private var isHovered = false
   @State private var leaveTask: Task<Void, Never>?
   @FocusState private var isFieldFocused: Bool
   @FocusState private var isLanguageFocused: Bool
@@ -37,8 +30,8 @@ struct PanelForeignLanguage: View {
     content
       .offset(x: -overlap)
       .frame(width: width, alignment: .leading)
-      // The glyphs start in the title's padding, so the visible part is the frame moved back
-      // by that much: nothing at zero width, the whole word once open.
+      // The target starts in the title's trailing padding, so the visible part is the frame moved
+      // back by that much: nothing at zero width, the full menu once open.
       .mask(alignment: .leading) {
         Rectangle()
           .frame(width: width)
@@ -47,7 +40,6 @@ struct PanelForeignLanguage: View {
       }
       .background(measurements)
       .contentShape(Rectangle())
-      .onTapGesture { model.beginEditingForeignLanguage() }
       .onHover { isHovered = $0 }
       .focusable(!model.isEditingForeignLanguage && model.showsForeignLanguage)
       .focused($isLanguageFocused)
@@ -58,15 +50,11 @@ struct PanelForeignLanguage: View {
             .strokeBorder(CidaDesign.accent, lineWidth: 1)
         }
       }
-      .onKeyPress(.space) {
-        model.beginEditingForeignLanguage() ? .handled : .ignored
-      }
-      .help("点按或 ⌘L 修改")
+      .help("选择翻译目标语言 · ⌘L 自定义")
       .accessibilityAction { model.beginEditingForeignLanguage() }
-      .accessibilityElement(children: model.isEditingForeignLanguage ? .contain : .ignore)
+      .accessibilityElement(children: .contain)
       .accessibilityLabel("要译成的语言")
-      .accessibilityValue(model.foreignLanguage)
-      .accessibilityAddTraits(.isButton)
+      .accessibilityValue(model.foreignLanguageOption.title)
       .accessibilityHidden(!model.showsForeignLanguage)
       .accessibilityIdentifier("foreign-language")
       .onAppear {
@@ -103,55 +91,102 @@ struct PanelForeignLanguage: View {
           .fixedSize()
           .textRenderer(
             WriteInRenderer(
-              elapsed: jointElapsed, fade: fade, blursGlyphs: !CidaMotion.reducesMotion)
+              elapsed: jointElapsed, fade: fade, blursGlyphs: !CidaMotion.reducesMotion
+            )
           )
           .accessibilityHidden(true)
       }
-      language
+      if model.isEditingForeignLanguage {
+        editor
+      } else {
+        targetMenu
+      }
     }
   }
 
-  @ViewBuilder
-  private var language: some View {
-    if model.isEditingForeignLanguage {
-      TextField("", text: $model.foreignLanguageDraft)
-        .textFieldStyle(.plain)
-        .font(Self.font)
-        .foregroundStyle(CidaDesign.textPrimary)
-        .focused($isFieldFocused)
-        .onSubmit {
-          if let window = NSApp.keyWindow, InputMethodRouting.isComposing(in: window) { return }
-          model.commitForeignLanguage(model.foreignLanguageDraft)
+  private var targetMenu: some View {
+    Menu {
+      ForEach(CidaSettings.supportedTranslationLanguages) { language in
+        Button {
+          model.selectForeignLanguage(language)
+        } label: {
+          if language == model.foreignLanguageOption {
+            Label(language.title, systemImage: "checkmark")
+          } else {
+            Text(language.title)
+          }
         }
-        .frame(width: draftWidth + 2, alignment: .leading)
-        .overlay(alignment: .bottom) {
-          Rectangle()
-            .fill(CidaDesign.textTertiary)
-            .frame(height: 1)
-            .offset(y: 2)
-        }
-        .accessibilityLabel("要译成的语言")
-        .accessibilityIdentifier("foreign-language-editor")
-    } else {
-      Text(model.foreignLanguage)
-        .font(Self.font)
-        .foregroundStyle(CidaDesign.textSecondary)
-        .underline(isHovered, color: CidaDesign.textSecondary)
-        .fixedSize()
-        .textRenderer(
-          WriteInRenderer(
-            elapsed: elapsed, fade: fade, blursGlyphs: !CidaMotion.reducesMotion,
-            firstGlyph: languageFirstGlyph)
-        )
+        .accessibilityIdentifier("foreign-language-option-\(language.rawValue)")
+      }
+    } label: {
+      HStack(spacing: 3) {
+        Text(model.foreignLanguageOption.title)
+          .font(Self.font)
+          .foregroundStyle(CidaDesign.textSecondary)
+          .underline(isHovered, color: CidaDesign.textSecondary)
+          .textRenderer(
+            WriteInRenderer(
+              elapsed: elapsed, fade: fade, blursGlyphs: !CidaMotion.reducesMotion,
+              firstGlyph: languageFirstGlyph
+            )
+          )
+        Image(systemName: "chevron.down")
+          .font(.system(size: 8, weight: .semibold))
+          .foregroundStyle(CidaDesign.textTertiary)
+      }
+      .fixedSize()
     }
+    .menuStyle(.borderlessButton)
+    .buttonStyle(.plain)
+    .accessibilityLabel("要译成的语言")
+    .accessibilityValue(model.foreignLanguageOption.title)
+    .accessibilityIdentifier("foreign-language-picker")
+    .help("选择翻译目标语言")
+  }
+
+  private var editor: some View {
+    TextField("", text: $model.foreignLanguageDraft)
+      .textFieldStyle(.plain)
+      .font(Self.font)
+      .foregroundStyle(CidaDesign.textPrimary)
+      .focused($isFieldFocused)
+      .onSubmit {
+        if let window = NSApp.keyWindow, InputMethodRouting.isComposing(in: window) { return }
+        model.commitForeignLanguage(model.foreignLanguageDraft)
+      }
+      .frame(width: max(24, draftWidth + 2), alignment: .leading)
+      .overlay(alignment: .bottom) {
+        Rectangle()
+          .fill(CidaDesign.textTertiary)
+          .frame(height: 1)
+          .offset(y: 2)
+      }
+      .accessibilityLabel("要译成的语言")
+      .accessibilityIdentifier("foreign-language-editor")
+      .help(model.foreignLanguageConfirmationHint)
+  }
+
+  private var measurements: some View {
+    ZStack {
+      Text("成").font(Self.jointFont).fixedSize()
+        .onGeometryChange(for: CGFloat.self, of: \.size.width) { jointGlyphWidth = $0 }
+      HStack(spacing: 3) {
+        Text(model.foreignLanguageOption.title).font(Self.font)
+        Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+      }
+      .fixedSize()
+      .onGeometryChange(for: CGFloat.self, of: \.size.width) { targetWidth = $0 }
+      Text(model.foreignLanguageDraft.isEmpty ? " " : model.foreignLanguageDraft)
+        .font(Self.font).fixedSize()
+        .onGeometryChange(for: CGFloat.self, of: \.size.width) { draftWidth = $0 }
+    }
+    .hidden()
+    .accessibilityHidden(true)
   }
 
   private static let font = CidaDesign.mainUI(11.5, weight: .medium)
-  /// 成 is part of the verb, so it is set like the selected title.
   private static let jointFont = CidaDesign.mainUI(11.5, weight: .semibold)
 
-  /// 成 belongs to the built-in verb alone; a 翻译 renamed in Settings is followed by the
-  /// language as it was.
   private var joint: String? {
     let name = model.settings.actions.first { $0.id == .translate }?.name
     return name == ProcessingMode.translate.title ? "成" : nil
@@ -162,36 +197,19 @@ struct PanelForeignLanguage: View {
     joint == nil ? Self.titleOverlap : PanelSegmentedControlMetrics.titlePadding
   }
 
-  /// The widths 成, the word and the draft take, measured off screen so the segment opens to
-  /// the final width before the first glyph is written.
-  private var measurements: some View {
-    ZStack {
-      Text("成").font(Self.jointFont).fixedSize()
-        .onGeometryChange(for: CGFloat.self, of: \.size.width) { jointGlyphWidth = $0 }
-      Text(model.foreignLanguage).font(Self.font).fixedSize()
-        .onGeometryChange(for: CGFloat.self, of: \.size.width) { wordWidth = $0 }
-      Text(model.foreignLanguageDraft.isEmpty ? " " : model.foreignLanguageDraft).font(Self.font).fixedSize()
-        .onGeometryChange(for: CGFloat.self, of: \.size.width) { draftWidth = $0 }
-    }
-    .hidden()
-    .accessibilityHidden(true)
-  }
-
-  /// 成 and the language, then the segment's own trailing padding.
+  /// 成 and the target menu, then the segment's own trailing padding.
   private var width: CGFloat {
     let joint = joint == nil ? 0 : jointGlyphWidth + Self.gapAfterTitle
     let trailing = PanelSegmentedControlMetrics.titlePadding - overlap
     if model.isEditingForeignLanguage { return joint + draftWidth + 2 + trailing }
-    return isPresented ? joint + wordWidth + trailing : 0
+    return isPresented ? joint + targetWidth + trailing : 0
   }
 
   private var writtenSeconds: Double {
-    WriteInRenderer.duration(glyphs: languageFirstGlyph + model.foreignLanguage.count)
+    WriteInRenderer.duration(glyphs: languageFirstGlyph + model.foreignLanguageOption.title.count)
   }
 
-  /// The segment opens to its final width while the glyphs are written in one after another,
-  /// so a glyph is never written where the segment has not made room. 成 is the first glyph; a
-  /// rewritten language is written in again behind the 成 that stayed.
+  /// The segment opens to its final width while the target label is written in one after another.
   private func writeIn(animated: Bool, rewriting: Bool = false) {
     leaveTask?.cancel()
     languageFirstGlyph = joint != nil && !rewriting ? 1 : 0
@@ -223,7 +241,7 @@ struct PanelForeignLanguage: View {
     }
   }
 
-  /// The word fades out whole; halfway through, the segment closes behind it.
+  /// The target fades out whole; halfway through, the segment closes behind it.
   private func leave(animated: Bool) {
     leaveTask?.cancel()
     guard animated else {

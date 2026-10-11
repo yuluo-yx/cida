@@ -107,15 +107,16 @@ final class ComposerJourneyTests: CidaReleaseUITestCase {
     XCTAssertFalse(driver.resultNote("stale").exists)
   }
 
-  /// `Design/spec/panel.md` §三: a source in my language writes the foreign language after
-  /// 翻译, ⌘L rewrites it in place, ⏎ keeps it and translates again, Esc drops an edit.
+  /// `Design/spec/panel.md` §三: 翻译 exposes a target-language picker, Chinese and English
+  /// auto-select opposite targets, and the legacy ⌘L editor remains compatible.
   func testForeignLanguageIsRewrittenAfterTranslateAndTranslatesAgain() throws {
     driver.launch()
     let language = driver.element(identifier: "foreign-language")
     let editor = driver.element(identifier: "foreign-language-editor")
 
     driver.replaceSource(with: "The new storage engine keeps every write in a log.")
-    XCTAssertFalse(language.waitForExistence(timeout: 1), "Other languages only go into mine")
+    XCTAssertTrue(language.waitForExistence(timeout: 3), "The target picker is visible for non-empty input")
+    XCTAssertTrue(driver.waitForValue("中文", in: language, timeout: 2))
 
     let source = "这是一段要译成日语的中文。CIDA_E2E_FOREIGN_JAPANESE"
     driver.replaceSource(with: source)
@@ -158,12 +159,16 @@ final class ComposerJourneyTests: CidaReleaseUITestCase {
     XCTAssertTrue(driver.waitForValue("日本語", in: language, timeout: 2))
 
     language.click()
-    XCTAssertTrue(editor.waitForExistence(timeout: 3))
-    editor.typeText("French")
-    driver.composer.click()
-    XCTAssertTrue(editor.waitForNonExistence(timeout: 3), "Clicking elsewhere cancels")
-    XCTAssertTrue(driver.waitForValue("日本語", in: language, timeout: 2))
-    XCTAssertEqual(try scenarioServer.state().count, 1, "Neither cancellation makes a request")
+    let korean = driver.element(identifier: "foreign-language-option-korean")
+    XCTAssertTrue(korean.waitForExistence(timeout: 3), "The target menu exposes Korean")
+    korean.click()
+    XCTAssertTrue(driver.waitForValue("한국어", in: language, timeout: 3))
+
+    language.click()
+    let japanese = driver.element(identifier: "foreign-language-option-japanese")
+    XCTAssertTrue(japanese.waitForExistence(timeout: 3), "The target menu exposes Japanese")
+    japanese.click()
+    XCTAssertTrue(driver.waitForValue("日本語", in: language, timeout: 3))
 
     driver.hidePanel()
     driver.showPanel()

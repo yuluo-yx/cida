@@ -116,13 +116,13 @@ final class AppModel {
     }
   }
   /// Whether the source is in my language, as the panel last decided once typing paused
-  /// (`Design/spec/panel.md` §三). Only this decides whether 翻译 shows the foreign language;
-  /// the model still decides which way a request goes.
+  /// (`Design/spec/panel.md` §三). This remains the direction hint for the translation request;
+  /// the target picker itself is visible for every non-empty translation source.
   private(set) var isSourceInMyLanguage = false
   /// Whether the last change of `showsForeignLanguage` should be written in or out
   /// (`Design/spec/streaming-motion.md` §四); a change the panel appears with is not.
   @ObservationIgnored private(set) var animatesForeignLanguageChange = false
-  /// ⌘L or a click on the foreign language turned it into a field.
+  /// ⌘L turns the selected target into the legacy free-form field.
   private(set) var isEditingForeignLanguage = false
   var foreignLanguageDraft = ""
   var isComposingForeignLanguage = false
@@ -143,6 +143,9 @@ final class AppModel {
   @ObservationIgnored var sourceLanguageSettleDelay = Duration.milliseconds(
     CidaMotion.languageSettleMilliseconds)
   @ObservationIgnored private var sourceLanguageTask: Task<Void, Never>?
+  /// A menu selection wins over the automatic pair for the current source. The next source edit
+  /// settles normally and may select the opposite Chinese/English target again.
+  @ObservationIgnored private var suppressAutomaticForeignLanguageUpdate = false
   private(set) var generationState = GenerationPresentationState.idle
   var isProcessing: Bool {
     generationState.isActive
@@ -276,6 +279,7 @@ final class AppModel {
     isSelectionAccessGranted = selectionAccess.isGranted()
     isCaptureAccessGranted = captureAccess.isGranted()
     isSourceInMyLanguage = Self.isInMyLanguage(inputText, settings: settings)
+    updateAutomaticForeignLanguage(for: inputText, persist: false)
   }
 
   /// No request can be sent until a model service is configured; the empty panel welcomes the
@@ -388,19 +392,37 @@ final class AppModel {
 
   // MARK: - Foreign language
 
-  /// 翻译 carries the foreign language when the source is in my language: the one
-  /// place it goes that differs from person to person (`Design/spec/panel.md` §三).
+  /// 翻译 carries the selected target language whenever the source is non-empty. Chinese and
+  /// English are selected automatically; Korean and Japanese are explicit menu choices.
   var showsForeignLanguage: Bool {
-    mode == .translate && isSourceInMyLanguage
+    mode == .translate && hasSubmittableInput
   }
 
-  /// The language a source in my language is translated into, as 翻译 writes it.
+  /// The selected target language shown after 翻译成.
   var foreignLanguage: String {
     settings.requestLanguages.foreign
   }
 
-  /// ⌘L or a click: the foreign language becomes a field. Nothing to rewrite while it is not
-  /// shown or a request runs.
+  /// The supported menu item corresponding to the persisted language. Unknown legacy values
+  /// fall back to English in the menu but remain untouched until the user chooses an item.
+  var foreignLanguageOption: SupportedTranslationLanguage {
+    SupportedTranslationLanguage.matching(foreignLanguage) ?? .english
+  }
+
+  /// Selects one of the four supported panel targets and immediately reruns a non-empty source.
+  func selectForeignLanguage(_ language: SupportedTranslationLanguage) {
+    guard !isProcessing else { return }
+    let value = language.modelName
+    guard value != foreignLanguage else { return }
+    suppressAutomaticForeignLanguageUpdate = true
+    settings.foreignLanguage = value
+    suppressAutomaticForeignLanguageUpdate = false
+    scheduleSettingsPersistence()
+    if hasSubmittableInput { startGeneration() }
+  }
+
+  /// ⌘L: the foreign language becomes a legacy free-form field. Nothing to rewrite while it is
+  /// not shown or a request runs.
   @discardableResult
   func beginEditingForeignLanguage() -> Bool {
     guard showsForeignLanguage, !isProcessing, !isEditingForeignLanguage else { return false }
@@ -457,12 +479,35 @@ final class AppModel {
 
   private func settleSourceLanguage(animated: Bool) {
     sourceLanguageTask?.cancel()
+    let text = String(currentInputDocument.prefix(1_000))
+    if !suppressAutomaticForeignLanguageUpdate {
+      updateAutomaticForeignLanguage(for: text, persist: true)
+    }
     let isMine =
       hasSubmittableInput
-      && Self.isInMyLanguage(String(currentInputDocument.prefix(1_000)), settings: settings)
+      && Self.isInMyLanguage(text, settings: settings)
     guard isMine != isSourceInMyLanguage else { return }
     animatesForeignLanguageChange = animated
     isSourceInMyLanguage = isMine
+  }
+
+  /// Chinese and English form the automatic pair after a source edit. A menu selection wins for
+  /// the current source, while Korean and Japanese also remain explicit across later checks.
+  private func updateAutomaticForeignLanguage(for text: String, persist: Bool) {
+    guard mode == .translate,
+      let detected = TextLanguageDetector.detect(in: text),
+      let target: SupportedTranslationLanguage = switch detected {
+      case .chinese: .english
+      case .english: .chinese
+      }
+    else { return }
+
+    let current = SupportedTranslationLanguage.matching(foreignLanguage)
+    guard current == nil || current == .chinese || current == .english,
+      foreignLanguage != target.modelName
+    else { return }
+    settings.foreignLanguage = target.modelName
+    if persist { scheduleSettingsPersistence() }
   }
 
   /// My language, recognized on this Mac; a wording it cannot recognize counts every source
@@ -950,6 +995,16 @@ final class AppModel {
 
   private func makeRequest(text: String) -> ProcessingRequest {
     let languages = settings.requestLanguages
+    if mode == .translate,
+      let target = SupportedTranslationLanguage.matching(languages.foreign),
+      !Self.isInMyLanguage(text, settings: settings)
+    {
+      // The model's translate_between contract translates into myLanguage for every source
+      // outside that language. For an explicitly selected target, make that target the request's
+      // effective myLanguage so English, Korean, and Japanese sources can use the same menu.
+      return ProcessingRequest(
+        text: text, mode: mode, myLanguage: target.modelName, foreignLanguage: target.modelName)
+    }
     return ProcessingRequest(
       text: text, mode: mode, myLanguage: languages.my, foreignLanguage: languages.foreign)
   }

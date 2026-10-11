@@ -19,7 +19,9 @@ final class CidaPanel: NSPanel {
     level = .floating
     collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
     hidesOnDeactivate = false
-    isMovableByWindowBackground = false
+    // Option-A opens a real floating window: users can move it away from the default position
+    // instead of being forced to use the screen-relative placement on every interaction.
+    isMovableByWindowBackground = true
     isReleasedWhenClosed = false
     backgroundColor = .clear
     isOpaque = false
@@ -52,7 +54,8 @@ struct PanelHeightBudget: Equatable, Sendable {
 
 /// Owns the panel's lifecycle: where it appears, how tall it is, when it hides,
 /// and what the panel-level keys do. The SwiftUI content reports the height it
-/// wants; the controller resizes the panel from a fixed top edge.
+/// wants; the controller resizes the panel from its current top edge, which may have been chosen
+/// by dragging.
 @MainActor
 final class PanelController {
   let panel: CidaPanel
@@ -61,12 +64,14 @@ final class PanelController {
   private var keyMonitor: Any?
   private var resignObserver: NSObjectProtocol?
   private var fieldEditorObserver: NSObjectProtocol?
+  private var moveObserver: NSObjectProtocol?
   private var contentHeight: CGFloat = 120
   /// Identifies the latest height change, so an interrupted animation's
   /// completion does not shrink the host under a newer one.
   private var heightChangeGeneration = 0
   private(set) var heightBudget = PanelHeightBudget.automation
   private var topEdge: CGFloat?
+  private var lastPanelOrigin: NSPoint?
   /// Production and E2E panels hide when they stop being key (the user left);
   /// probe and snapshot panels stay put so automation keeps a stable target.
   private let hidesOnResignKey: Bool
@@ -126,6 +131,19 @@ final class PanelController {
         }
       }
     }
+    moveObserver = NotificationCenter.default.addObserver(
+      forName: NSWindow.didMoveNotification,
+      object: panel,
+      queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated {
+        guard let self, self.panel.isVisible else { return }
+        // Keep the user's chosen position while content grows and when Option-A shows the panel
+        // again.
+        self.topEdge = self.panel.frame.maxY
+        self.lastPanelOrigin = self.panel.frame.origin
+      }
+    }
     resignObserver = NotificationCenter.default.addObserver(
       forName: NSWindow.didResignKeyNotification,
       object: panel,
@@ -150,6 +168,10 @@ final class PanelController {
     if let fieldEditorObserver {
       NotificationCenter.default.removeObserver(fieldEditorObserver)
       self.fieldEditorObserver = nil
+    }
+    if let moveObserver {
+      NotificationCenter.default.removeObserver(moveObserver)
+      self.moveObserver = nil
     }
     if let resignObserver {
       NotificationCenter.default.removeObserver(resignObserver)
@@ -181,12 +203,22 @@ final class PanelController {
       // `layOutHiddenContent()`.
       hostingView.layoutSubtreeIfNeeded()
       let visible = screen.visibleFrame
-      topEdge = CidaDesign.Panel.topEdge(in: visible)
-      let origin = NSPoint(
-        x: floor(visible.midX - panel.frame.width / 2),
-        y: topEdge! - panel.frame.height
-      )
+      let origin: NSPoint
+      if let saved = lastPanelOrigin,
+        visible.insetBy(dx: -panel.frame.width / 2, dy: -panel.frame.height / 2).contains(
+          NSPoint(x: saved.x + panel.frame.width / 2, y: saved.y + panel.frame.height / 2))
+      {
+        origin = saved
+      } else {
+        topEdge = CidaDesign.Panel.topEdge(in: visible)
+        origin = NSPoint(
+          x: floor(visible.midX - panel.frame.width / 2),
+          y: topEdge! - panel.frame.height
+        )
+      }
       panel.setFrameOrigin(origin)
+      lastPanelOrigin = origin
+      topEdge = origin.y + panel.frame.height
     }
     // Appears at once, like Spotlight. A probe launch may have parked the
     // panel transparent (`prepareAutomationPanel`), so restore full opacity.
