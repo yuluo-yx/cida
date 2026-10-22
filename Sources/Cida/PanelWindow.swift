@@ -242,7 +242,7 @@ final class PanelController {
     hostingView.layoutSubtreeIfNeeded()
   }
 
-  /// Every way of hiding the panel answers a message on it with its last choice
+  /// Every way of hiding the panel defers a message without executing its default command
   /// (`Design/spec/lifecycle.md` §一).
   func hide() {
     guard panel.isVisible else { return }
@@ -365,9 +365,6 @@ final class PanelController {
 
       if self.model.panelMessage != nil {
         switch event.keyCode {
-        case 48 where modifiers.isEmpty:
-          self.model.selectNextPanelMessageChoice()
-          return nil
         case 36 where modifiers.isEmpty, 76 where modifiers.isEmpty:
           self.model.performPanelMessageChoice()
           return nil
@@ -375,7 +372,7 @@ final class PanelController {
           self.hide()
           return nil
         default:
-          return nil
+          return event
         }
       }
 
