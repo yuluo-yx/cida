@@ -258,7 +258,7 @@ private struct ControlBar: View {
       if model.isEditingForeignLanguage {
         Text(model.foreignLanguageConfirmationHint)
           .font(CidaDesign.mainUI(11))
-          .foregroundStyle(CidaDesign.textTertiary)
+          .foregroundStyle(CidaDesign.textSecondary)
           .fixedSize()
           .accessibilityIdentifier("foreign-language-confirmation-hint")
       } else {
@@ -295,7 +295,7 @@ private struct TabHint: View {
   var body: some View {
     Text("⇥ 切换")
       .font(CidaDesign.mainUI(11))
-      .foregroundStyle(CidaDesign.hint)
+      .foregroundStyle(CidaDesign.textTertiary)
       .modifier(DimmedWhileWorking(isDimmed: isDimmed))
       .accessibilityHidden(true)
   }
@@ -343,6 +343,7 @@ enum PanelSegmentedControlMetrics {
 /// The control bar's segmented control: the panel's two actions, or a message's choices.
 /// An item can carry an accessory after its title, inside the same selected background.
 struct PanelSegmentedControl<Accessory: View>: View {
+  @Environment(\.colorScheme) private var colorScheme
   let titles: [String]
   let selected: Int
   let identifiers: [String]
@@ -378,9 +379,24 @@ struct PanelSegmentedControl<Accessory: View>: View {
           if isSelected {
             RoundedRectangle(cornerRadius: CidaDesign.Radius.segmentItem, style: .continuous)
               .fill(CidaDesign.surface)
+              .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.25 : 0.04), radius: 1, x: 0, y: 1)
               .overlay {
                 RoundedRectangle(cornerRadius: CidaDesign.Radius.segmentItem, style: .continuous)
                   .strokeBorder(CidaDesign.border, lineWidth: 1)
+              }
+              .overlay {
+                RoundedRectangle(cornerRadius: CidaDesign.Radius.segmentItem, style: .continuous)
+                  .strokeBorder(
+                    LinearGradient(
+                      stops: [
+                        .init(color: Color.white.opacity(colorScheme == .dark ? 0.14 : 0.65), location: 0),
+                        .init(color: Color.clear, location: 0.5)
+                      ],
+                      startPoint: .top,
+                      endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                  )
               }
           }
         }
@@ -389,6 +405,10 @@ struct PanelSegmentedControl<Accessory: View>: View {
     .padding(2)
     .background(CidaDesign.surfaceDim)
     .clipShape(.rect(cornerRadius: CidaDesign.Radius.segment, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: CidaDesign.Radius.segment, style: .continuous)
+        .strokeBorder(Color.black.opacity(colorScheme == .dark ? 0.18 : 0.03), lineWidth: 0.5)
+    }
     .modifier(DimmedWhileWorking(isDimmed: !isEnabled))
     .disabled(!isEnabled)
     .accessibilityElement(children: .contain)
@@ -424,6 +444,7 @@ private struct DimmedWhileWorking: ViewModifier {
 
 /// The control bar always operates on the current input and selected action.
 private struct BarActionButton: View {
+  @Environment(\.colorScheme) private var colorScheme
   let model: AppModel
   let presentation: BarActionPresentation
   var openSettings: @MainActor () -> Void = {}
@@ -489,11 +510,29 @@ private struct BarActionButton: View {
       .background {
         RoundedRectangle(cornerRadius: CidaDesign.Radius.card, style: .continuous)
           .fill(accent ? CidaDesign.accentSoft : CidaDesign.surface)
+          .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.25 : 0.04), radius: 1, x: 0, y: 1)
           .overlay {
             if !accent {
               RoundedRectangle(cornerRadius: CidaDesign.Radius.card, style: .continuous)
                 .strokeBorder(CidaDesign.border, lineWidth: 1)
             }
+          }
+          .overlay {
+            RoundedRectangle(cornerRadius: CidaDesign.Radius.card, style: .continuous)
+              .strokeBorder(
+                LinearGradient(
+                  stops: [
+                    .init(
+                      color: Color.white.opacity(accent ? 0.35 : (colorScheme == .dark ? 0.14 : 0.65)),
+                      location: 0
+                    ),
+                    .init(color: Color.clear, location: 0.5)
+                  ],
+                  startPoint: .top,
+                  endPoint: .bottom
+                ),
+                lineWidth: 1
+              )
           }
       }
     }
@@ -893,7 +932,7 @@ private struct PanelMessageView: View {
   var body: some View {
     VStack(spacing: 0) {
       statement
-      bar
+      if message.hasBar { bar }
       if message.hasPaper {
         paper
       }
@@ -921,22 +960,10 @@ private struct PanelMessageView: View {
 
   private var bar: some View {
     HStack(spacing: 8) {
-      PanelSegmentedControl(
-        titles: message.choices,
-        selected: message.selectedChoice,
-        identifiers: message.choices.indices.map { "message-choice-\($0)" },
-        isEnabled: !message.isWorking,
-        onSelect: { index in
-          model.selectPanelMessageChoice(index)
-          model.performPanelMessageChoice()
-        }
-      )
-      .accessibilityLabel("选择")
-      .accessibilityIdentifier("message-choices")
-      if message.choices.count > 1 {
-        TabHint(isDimmed: message.isWorking)
-      }
       Spacer(minLength: 12)
+      ForEach(Array(message.choices.indices.reversed()), id: \.self) { index in
+        command(at: index)
+      }
       if message.slot == .stop {
         BarActionButton(model: model, presentation: .stop)
       }
@@ -944,11 +971,42 @@ private struct PanelMessageView: View {
     .modifier(ControlBarChrome(closesWithHairline: message.hasPaper))
   }
 
+  private func command(at index: Int) -> some View {
+    let choice = message.choices[index]
+    return Button { model.performPanelMessageChoice(index) } label: {
+      HStack(spacing: 8) {
+        Text(choice.title)
+          .font(CidaDesign.mainUI(11.5, weight: choice.isQuiet ? .medium : .semibold))
+          .foregroundStyle(choice.isQuiet ? CidaDesign.textSecondary : CidaDesign.textControl)
+        if index == 0 {
+          Text("⏎").font(CidaDesign.mainUI(11)).foregroundStyle(CidaDesign.textTertiary)
+        }
+      }
+      .padding(.horizontal, 12)
+      .frame(height: 30)
+      .background {
+        if !choice.isQuiet {
+          RoundedRectangle(cornerRadius: CidaDesign.Radius.card, style: .continuous)
+            .fill(CidaDesign.surface)
+            .overlay {
+              RoundedRectangle(cornerRadius: CidaDesign.Radius.card, style: .continuous)
+                .strokeBorder(CidaDesign.border, lineWidth: 1)
+            }
+        }
+      }
+    }
+    .buttonStyle(HoverFadeButtonStyle())
+    .accessibilityLabel(choice.title)
+    .accessibilityIdentifier("message-choice-\(index)")
+    .disabled(message.isWorking)
+  }
+
   /// The paper pane's cap: whatever the panel's height budget leaves under the statement and bar.
   private var paperMaxHeight: CGFloat {
     max(
       CidaDesign.Typography.resultLineHeightCJK + CidaDesign.Spacing.resultVertical * 2,
-      heightBudget.panelMaxHeight - statementHeight - CidaDesign.Panel.controlBarHeight
+      heightBudget.panelMaxHeight - statementHeight
+        - (message.hasBar ? CidaDesign.Panel.controlBarHeight : 0)
     )
   }
 

@@ -51,4 +51,4 @@ A pull request that changes the UI without screenshots is not ready for review.
 
 ## Release
 
-Pushing a `vX.Y.Z` tag on `main` builds, signs, notarizes and publishes a release through `.github/workflows/release.yml`, and publishes it as a Sparkle update to `https://cida-releases.xuanwo.io` (`vX.Y.Z-rc.N` goes to the beta channel only). Run `scripts/e2e/run-release-gate.sh` on the commit before tagging it, because GitHub's runners cannot run the Tart journeys.
+The `Build and Release macOS` workflow validates and packages Apple Silicon (arm64) builds on pull requests and pushes to `main`. Dispatch it from `main` with `release_tag=vX.Y.Z` to publish DMG, ZIP and SHA-256 assets to this repository's GitHub Releases. Packages use ad hoc signatures without notarization and omit the upstream Sparkle update feed. Run `scripts/e2e/run-release-gate.sh` on the commit before dispatching, because GitHub's runners cannot run the Tart journeys; any explicit user-authorized exception must be recorded in the pull request. See `docs/development.md` for the release procedure.

@@ -8,6 +8,8 @@ struct PanelForeignLanguage: View {
   @Bindable var model: AppModel
   static let gapAfterTitle: CGFloat = 5
   static let titleOverlap = PanelSegmentedControlMetrics.titlePadding - gapAfterTitle
+  /// Extra breathing room for the target menu so the segment pill does not feel cramped.
+  static let targetTrailingPadding: CGFloat = 4
 
   @State private var isPresented = false
   /// Seconds into writing the target label; the label is fully visible at `writtenSeconds`.
@@ -137,7 +139,9 @@ struct PanelForeignLanguage: View {
       .fixedSize()
     }
     .menuStyle(.borderlessButton)
+    .menuIndicator(.hidden)
     .buttonStyle(.plain)
+    .fixedSize()
     .accessibilityLabel("要译成的语言")
     .accessibilityValue(model.foreignLanguageOption.title)
     .accessibilityIdentifier("foreign-language-picker")
@@ -170,10 +174,17 @@ struct PanelForeignLanguage: View {
     ZStack {
       Text("成").font(Self.jointFont).fixedSize()
         .onGeometryChange(for: CGFloat.self, of: \.size.width) { jointGlyphWidth = $0 }
-      HStack(spacing: 3) {
-        Text(model.foreignLanguageOption.title).font(Self.font)
-        Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+      Menu {
+        EmptyView()
+      } label: {
+        HStack(spacing: 3) {
+          Text(model.foreignLanguageOption.title).font(Self.font)
+          Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+        }
       }
+      .menuStyle(.borderlessButton)
+      .menuIndicator(.hidden)
+      .buttonStyle(.plain)
       .fixedSize()
       .onGeometryChange(for: CGFloat.self, of: \.size.width) { targetWidth = $0 }
       Text(model.foreignLanguageDraft.isEmpty ? " " : model.foreignLanguageDraft)
@@ -200,7 +211,7 @@ struct PanelForeignLanguage: View {
   /// 成 and the target menu, then the segment's own trailing padding.
   private var width: CGFloat {
     let joint = joint == nil ? 0 : jointGlyphWidth + Self.gapAfterTitle
-    let trailing = PanelSegmentedControlMetrics.titlePadding - overlap
+    let trailing = PanelSegmentedControlMetrics.titlePadding - overlap + Self.targetTrailingPadding
     if model.isEditingForeignLanguage { return joint + draftWidth + 2 + trailing }
     return isPresented ? joint + targetWidth + trailing : 0
   }

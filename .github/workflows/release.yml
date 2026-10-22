@@ -1,127 +1,127 @@
-# Pushing a tag vX.Y.Z (or vX.Y.Z-rc.N for a prerelease) on a commit of main builds, signs,
-# notarizes and publishes Cida as a GitHub release with its DMG and as an update on
-# cida-releases.xuanwo.io. See "Releasing" in docs/development.md for the update notes and
-# secrets it needs and the local gate that comes before the tag.
-name: Release
+# Validate macOS packages on every PR; publish only on an explicit dispatch.
+name: Build and Release macOS
 
 on:
+  pull_request:
   push:
-    tags: ["v*"]
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag, for example v1.6.0 (requires matching update notes)"
+        required: true
+        type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: macos-release-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: false
 
 jobs:
-  release:
+  validate:
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-
-      - name: Resolve the version from the tag
+      - name: Validate the release version and target
         id: version
-        run: |
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)(-rc\.[0-9]+)?$ ]]; then
-            echo "::error::Tag $GITHUB_REF_NAME is not vX.Y.Z or vX.Y.Z-rc.N"
-            exit 1
-          fi
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::$GITHUB_REF_NAME is not on main"
-            exit 1
-          fi
-          {
-            echo "version=${BASH_REMATCH[1]}"
-            echo "prerelease=$([[ -n "${BASH_REMATCH[2]}" ]] && echo true || echo false)"
-            echo "build=$(git rev-list --count HEAD)"
-          } >>"$GITHUB_OUTPUT"
-
-      # docs/releases/<X.Y.Z>.md is written by hand for users; a candidate uses the notes of the
-      # version it will become. Reading them first keeps a tag without notes from building.
-      - name: Read the update notes
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: python3 scripts/ci/release-notes.py "$VERSION" >"$RUNNER_TEMP/update-notes.txt"
-
-      - name: Show the toolchain
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
         run: |
-          xcodebuild -version
-          swift --version
-          python3 --version
-
+          version=1.6.0
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            if [[ "$GITHUB_REF" != refs/heads/main || ! "$RELEASE_TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+              echo "::error::Dispatch a vX.Y.Z release from main."
+              exit 1
+            fi
+            version="${BASH_REMATCH[1]}"
+            if git rev-parse --verify "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+              if [[ "$(git rev-list -n 1 "$RELEASE_TAG")" != "$GITHUB_SHA" ]]; then
+                echo "::error::The existing release tag points to another commit."
+                exit 1
+              fi
+            fi
+          fi
+          python3 scripts/ci/release-notes.py "$version"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+      - name: Build with warnings as errors
+        run: swift build -Xswiftc -warnings-as-errors
       - name: Test
         run: swift test
+      - name: Build the website
+        run: python3 scripts/build-website.py
 
-      - name: Import the Developer ID identity
+  macos:
+    name: macOS arm64
+    needs: validate
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Build and package
         env:
-          CIDA_DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
-          CIDA_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          CIDA_VERSION: ${{ needs.validate.outputs.version }}
+        run: scripts/package-macos-release.sh
+      - name: Upload macOS packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: Cida-macos-arm64
+          path: build/releases/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    if: github.event_name == 'workflow_dispatch'
+    needs: [validate, macos]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@v8
+        with:
+          name: Cida-macos-arm64
+          path: release-assets
+      - name: Validate packages and write checksums
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
         run: |
-          identity=$(scripts/ci/import-signing-identity.sh "$RUNNER_TEMP/cida-signing.keychain-db")
-          echo "CIDA_CODESIGN_IDENTITY=$identity" >>"$GITHUB_ENV"
-
-      - name: Build
-        env:
-          CIDA_VERSION: ${{ steps.version.outputs.version }}
-          CIDA_BUILD_NUMBER: ${{ steps.version.outputs.build }}
-          CIDA_UPDATE_CHANNEL: ${{ steps.version.outputs.prerelease == 'true' && 'beta' || '' }}
-        run: scripts/build-app.sh release
-
-      - name: Notarize
-        env:
-          NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
-          CIDA_NOTARY_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
-          CIDA_NOTARY_ISSUER: ${{ secrets.NOTARY_API_ISSUER }}
-        run: |
-          (umask 077 && printf '%s\n' "$NOTARY_API_KEY" >"$RUNNER_TEMP/cida-notary.p8")
-          CIDA_NOTARY_KEY="$RUNNER_TEMP/cida-notary.p8" scripts/notarize-app.sh build/Cida.app
-
-      - name: Build the DMG
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          BUILD: ${{ steps.version.outputs.build }}
-          CIDA_NOTARY_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
-          CIDA_NOTARY_ISSUER: ${{ secrets.NOTARY_API_ISSUER }}
-        run: |
-          CIDA_NOTARY_KEY="$RUNNER_TEMP/cida-notary.p8" \
-            scripts/build-dmg.sh build/Cida.app "build/Cida-$VERSION-$BUILD.dmg"
-
-      - name: Publish the release
+          cd release-assets
+          for extension in dmg zip; do
+            test -s "Cida-$VERSION-macos-arm64.$extension"
+          done
+          sha256sum Cida-*.dmg Cida-*.zip >"Cida-$VERSION-SHA256SUMS.txt"
+      - name: Publish or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
-          BUILD: ${{ steps.version.outputs.build }}
-          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
         run: |
-          # The DMG is what people download; the zip is only the Sparkle archive on R2.
-          disk_image="Cida-$VERSION-$BUILD.dmg"
-          (cd build && shasum -a 256 "$disk_image" >"$disk_image.sha256")
-          flags=(--verify-tag --notes-file "docs/releases/$VERSION.md" --title "辞达 $GITHUB_REF_NAME")
-          if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease); fi
-          gh release create "$GITHUB_REF_NAME" "build/$disk_image" "build/$disk_image.sha256" "${flags[@]}"
+          cp "docs/releases/$VERSION.md" "$RUNNER_TEMP/release-notes.md"
+          cat >>"$RUNNER_TEMP/release-notes.md" <<'NOTES'
 
-      - name: Publish the update
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          BUILD: ${{ steps.version.outputs.build }}
-          CHANNEL: ${{ steps.version.outputs.prerelease == 'true' && 'beta' || 'release' }}
-          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: |
-          scripts/ci/publish-update.sh "build/Cida-$VERSION-$BUILD.zip" "build/Cida-$VERSION-$BUILD.dmg" \
-            "$VERSION" "$BUILD" "$CHANNEL" "$RUNNER_TEMP/update-notes.txt"
-
-      - name: Remove the signing material
-        if: always()
-        run: |
-          rm -f "$RUNNER_TEMP/cida-notary.p8"
-          if [[ -f "$RUNNER_TEMP/cida-signing.keychain-db" ]]; then
-            security delete-keychain "$RUNNER_TEMP/cida-signing.keychain-db"
+          Requires Apple Silicon (arm64) and macOS 15 or later.
+          These packages use ad hoc signatures and are not Apple-notarized.
+          Automatic updates from the upstream Sparkle feed are disabled; install future releases from this repository.
+          NOTES
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+            gh release edit "$RELEASE_TAG" --title "Cida $VERSION" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" --latest
+          else
+            gh release create "$RELEASE_TAG" release-assets/* --target "$GITHUB_SHA" \
+              --title "Cida $VERSION" --notes-file "$RUNNER_TEMP/release-notes.md" --latest
           fi

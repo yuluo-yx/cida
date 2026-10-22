@@ -106,53 +106,58 @@ The XCUI regression runs inside a fresh clone of the local `cida-ui-golden` macO
 
 Standalone design snapshots and native input probes use a fresh temporary `辞达测试.app` with a unique `com.xuanwo.Cida.Automation.*` bundle identifier. Release performance gates instead launch the exact manifest-bound `Cida.app` in an isolated automation data directory. The performance instance orders its panel behind existing windows, never activates the application or makes its panel key, and reports fail if activation or a key panel is observed.
 
-The in-process integration suite and the VM XCUI suite both start a loopback OpenAI-compatible SSE server. XCUI configures the model service through the command line, as an AI assistant would, and drives the visible guest panel through Settings' model status, check and configuration prompt, multiline growth and shrink of the source pane and the panel, submit with the source retained, stale marking, consecutive submissions, uneven streaming, stop and inline failure, hover-free copy, Escape and Option-A, the empty-panel and Settings pixel baselines, the native accessibility audit, and the exact outbound request body. A separate Release executable gate routes a real mouse click through AppKit hit testing, performs an isolated focus handoff, sends real key-down events, and verifies the native editor and `AppModel` receive identical text. UI waits use an immediately sampled 20 ms polling primitive with timeout timelines, and harness self-tests prove that short-lived feedback cannot be skipped. Tart writes a machine-readable failure category before a failed run is interpreted as a product regression. No external credential or network service is used. `CIDA_UI_TEST_ONLY_TESTING` can select one XCUI identifier for diagnosis; omitting it always runs the complete regression suite.
+The in-process integration suite and the VM XCUI suite both start a loopback OpenAI-compatible SSE server. XCUI configures the model service through the command line, as an AI assistant would, and drives the visible guest panel through Settings' model status, check and configuration prompt, multiline growth and shrink of the source pane and the panel, submit with the source retained, stale marking, consecutive submissions, uneven streaming, stop and inline failure, hover-free copy, Escape and Option-A, the empty-panel and Settings pixel baselines, the native accessibility audit, and the exact outbound request body. A separate Release executable gate routes a real mouse click through AppKit hit testing, performs an isolated focus handoff, sends real key-down events, and verifies the native editor and `AppModel` receive identical text. UI waits use an immediately sampled 20 ms polling primitive with timeout timelines, and harness self-tests prove that short-lived feedback cannot be skipped. Tart writes a machine-readable failure category before a failed run is interpreted as a product regression. No external credential or network service is used. `UpdateJourneyTests` makes two isolated, ad-hoc-signed copies of the manifest-bound executable inside the guest. An ephemeral Ed25519 key signs a loopback appcast and archive; Sparkle must replace version 1 with version 2 and relaunch a different process. The journeys cover a single install confirmation and deferring during a controlled download. They do not replace the original Release artifact, use production signing keys, or certify notarization. `CIDA_UI_TEST_ONLY_TESTING` can select one XCUI identifier for diagnosis; omitting it always runs the complete regression suite.
 
 The strict performance gates require a detected 120 Hz-capable display, at least 118.8 measured native display-link callbacks per second, a P99 physical interval no greater than 12.5 ms, and zero main-actor callback latencies above the 12.5 ms budget. The focused gates collect 1,440 samples. Production stream pacing and the probe both use the panel's native Core Animation display link; the report labels it `view-bound-ca-display-link` and records native callback cadence separately from main-actor handling latency. A nonactivating fallback only keeps an unavailable display link from hanging the process; a 60 Hz or unavailable physical display still fails `displayRequirementSatisfied` and cannot produce a passing 120 Hz report. PR gates report structural proxy coverage without claiming an FPS result; nightly and release summaries on a host with a 120 Hz display cannot pass unless its physical reports confirm 120 Hz and the view-bound clock, and on a host without one they state that the certification was skipped.
 
 ## Releasing
 
-Pushing a tag `vX.Y.Z` on a commit of `main` publishes a release through `.github/workflows/release.yml`; `vX.Y.Z-rc.N` publishes a prerelease. On a `macos-26` runner the workflow reads the update notes, runs `swift test`, builds with the tag's version and the commit count as the build number, signs with the Developer ID identity, notarizes the app, builds, notarizes and staples `Cida-<version>-<build>.dmg` (`scripts/build-dmg.sh`), attaches the DMG and its SHA-256 to a GitHub release whose notes are the update notes, and publishes the zip as an update and the DMG as the download (`scripts/ci/publish-update.sh`). The zip is only Sparkle's archive and is not attached to the GitHub release.
+This fork follows Mory's GitHub Actions release model. The `Build and Release macOS` workflow
+builds and tests the app, builds the website, and packages an Apple Silicon (arm64) app on every
+pull request and push to `main`. It publishes only after an explicit dispatch from `main`:
 
-After the release is published, run the Website workflow (`gh workflow run Website --repo Xuanwo/cida`) so cida.xuanwo.io shows the new version and its notes.
+```sh
+gh workflow run release.yml --repo yuluo-yx/cida --ref main -f release_tag=v1.6.0
+```
 
-Every version needs update notes before it is tagged: `docs/releases/<X.Y.Z>.md`, written by hand in Chinese for users, one item per line starting with `- ` (`Design/spec/lifecycle.md` §六). A candidate `vX.Y.Z-rc.N` uses the notes of `X.Y.Z`. The workflow stops before building when the file is missing or has a line that is not an item (`scripts/ci/release-notes.py`); the notes go into the feed as plain text, one item per line, and Cida shows them in its panel.
+Prepare `docs/releases/<X.Y.Z>.md` before dispatching. Notes are written for users in Chinese,
+one item per line starting with `- `. The workflow validates them with
+`scripts/ci/release-notes.py`, refuses a tag that already points to another commit, and creates
+or updates the GitHub release after all build jobs pass. PR builds use the current development
+version recorded in the workflow; update it when preparing the next release.
 
-Updates follow `Design/spec/updates.md`. The R2 bucket `cida-releases`, served at `https://cida-releases.xuanwo.io` with a Cloudflare cache rule that honours each object's `Cache-Control`, holds:
+`scripts/package-macos-release.sh` reuses the existing app assembly and nested signing scripts,
+builds with warnings as errors, sets the version and commit-count build number, and creates:
 
-| Key | Cache | Written |
-| --- | --- | --- |
-| `appcast.xml` | 5 minutes | last, EdDSA-signed |
-| `releases/<version>-<build>/Cida-<version>-<build>.zip` | a year, immutable | first; the archive Sparkle installs |
-| `releases/<version>-<build>/Cida-<version>-<build>.dmg` | a year, immutable | second; that version's installer |
-| `latest/Cida.dmg` | 5 minutes | for releases only, before the feed; the READMEs' download link |
+- `Cida-<version>-macos-arm64.dmg`
+- `Cida-<version>-macos-arm64.zip`
+- `Cida-<version>-SHA256SUMS.txt` (generated by the publishing job)
 
-The feed keeps the two newest builds of each channel (`Design/spec/updates.md` §四). After uploading the feed, the script deletes every `releases/` folder it no longer lists; if that fails, the job only warns and the next publish deletes them. The GitHub releases keep every version's DMG.
+The packages require Apple Silicon and macOS 15 or later. They use ad hoc signatures, like
+Mory, and are not notarized by Apple. Gatekeeper may require explicit approval on first launch.
+No Developer ID, notarization, Sparkle or Cloudflare credentials are required. The packaging
+script removes the upstream Sparkle feed and public key from the assembled bundle so the fork
+cannot update itself into an upstream release. Install future versions from this repository's
+GitHub Releases. Existing application settings keep their bundle identity; no data migration
+is required. The source plist and upstream signing scripts remain available for separate
+Developer ID builds.
 
-A release candidate's item carries Sparkle's `beta` channel, and its bundle carries `CidaUpdateChannel = beta`, so only candidates look for candidates. The EdDSA private key signs every zip and the feed; the app trusts only the public key in `Resources/Cida-Info.plist` (`SUPublicEDKey`). Losing the private key means shipped copies can no longer be updated, so keep the login keychain item "Private key for signing Sparkle updates" (service `https://sparkle-project.org`, account `cida`) backed up; Sparkle's `sign_update --account cida` signs with it locally.
-
-GitHub's runners cannot run the Tart journeys, so run the release gate on the commit before tagging it:
+The workflow verifies the binary architecture, nested code signatures, the ZIP after extraction,
+and the DMG integrity. CI packages remain available as workflow artifacts for 14 days.
+GitHub's runners cannot run the Tart journeys, so run the local release gate before dispatching:
 
 ```sh
 scripts/e2e/run-release-gate.sh
 ```
 
-The workflow reads these repository secrets:
-
-| Secret | Value |
-| --- | --- |
-| `DEVELOPER_ID_P12` | The Developer ID Application certificate and its private key, exported from Keychain Access as `.p12`, in base64 (`base64 -i Cida.p12`) |
-| `DEVELOPER_ID_P12_PASSWORD` | The password chosen for that export |
-| `NOTARY_API_KEY` | The contents of an App Store Connect team API key (`AuthKey_<id>.p8`) with the Developer role |
-| `NOTARY_API_KEY_ID` | That key's ID |
-| `NOTARY_API_ISSUER` | The issuer ID shown above the team keys |
-| `SPARKLE_ED_PRIVATE_KEY` | Sparkle's EdDSA private key: base64 of the 32-byte Ed25519 seed |
-| `R2_ACCESS_KEY_ID` | The access key of an R2 API token with Object Read & Write on the bucket `cida-releases` only |
-| `R2_SECRET_ACCESS_KEY` | That token's secret access key |
-
-`scripts/ci/import-signing-identity.sh` imports the identity into a keychain of the job's own, which the workflow deletes when it ends.
+Record any explicit user-authorized gate exception and the missing evidence in the pull request.
+To roll back a release, install the preceding package; revert the relevant PR before preparing
+a corrective version. Do not move an already published version tag.
 
 ## Website
+
+The fork retains website build checks, but deployment is restricted to `Xuanwo/cida`.
+The following hosting details describe that upstream deployment, not this fork's releases.
 
 `website/` holds cida.xuanwo.io (`Design/spec/website.md`): the Chinese page, `en/`, `releases/`, the layout and motion in `site.css` and `site.js`, and the prepared fonts and clips in `assets/`. The pages load the design tokens, components and brand files from `Design/boards` and `Resources` rather than copies, so the site keeps the app's look. To build and look at it (needs the release tags, `git fetch --tags`):
 
