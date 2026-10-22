@@ -343,6 +343,7 @@ enum PanelSegmentedControlMetrics {
 /// The control bar's segmented control: the panel's two actions, or a message's choices.
 /// An item can carry an accessory after its title, inside the same selected background.
 struct PanelSegmentedControl<Accessory: View>: View {
+  @Environment(\.colorScheme) private var colorScheme
   let titles: [String]
   let selected: Int
   let identifiers: [String]
@@ -378,9 +379,24 @@ struct PanelSegmentedControl<Accessory: View>: View {
           if isSelected {
             RoundedRectangle(cornerRadius: CidaDesign.Radius.segmentItem, style: .continuous)
               .fill(CidaDesign.surface)
+              .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.25 : 0.04), radius: 1, x: 0, y: 1)
               .overlay {
                 RoundedRectangle(cornerRadius: CidaDesign.Radius.segmentItem, style: .continuous)
                   .strokeBorder(CidaDesign.border, lineWidth: 1)
+              }
+              .overlay {
+                RoundedRectangle(cornerRadius: CidaDesign.Radius.segmentItem, style: .continuous)
+                  .strokeBorder(
+                    LinearGradient(
+                      stops: [
+                        .init(color: Color.white.opacity(colorScheme == .dark ? 0.14 : 0.65), location: 0),
+                        .init(color: Color.clear, location: 0.5)
+                      ],
+                      startPoint: .top,
+                      endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                  )
               }
           }
         }
@@ -389,6 +405,10 @@ struct PanelSegmentedControl<Accessory: View>: View {
     .padding(2)
     .background(CidaDesign.surfaceDim)
     .clipShape(.rect(cornerRadius: CidaDesign.Radius.segment, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: CidaDesign.Radius.segment, style: .continuous)
+        .strokeBorder(Color.black.opacity(colorScheme == .dark ? 0.18 : 0.03), lineWidth: 0.5)
+    }
     .modifier(DimmedWhileWorking(isDimmed: !isEnabled))
     .disabled(!isEnabled)
     .accessibilityElement(children: .contain)
@@ -424,6 +444,7 @@ private struct DimmedWhileWorking: ViewModifier {
 
 /// The control bar always operates on the current input and selected action.
 private struct BarActionButton: View {
+  @Environment(\.colorScheme) private var colorScheme
   let model: AppModel
   let presentation: BarActionPresentation
   var openSettings: @MainActor () -> Void = {}
@@ -489,11 +510,29 @@ private struct BarActionButton: View {
       .background {
         RoundedRectangle(cornerRadius: CidaDesign.Radius.card, style: .continuous)
           .fill(accent ? CidaDesign.accentSoft : CidaDesign.surface)
+          .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.25 : 0.04), radius: 1, x: 0, y: 1)
           .overlay {
             if !accent {
               RoundedRectangle(cornerRadius: CidaDesign.Radius.card, style: .continuous)
                 .strokeBorder(CidaDesign.border, lineWidth: 1)
             }
+          }
+          .overlay {
+            RoundedRectangle(cornerRadius: CidaDesign.Radius.card, style: .continuous)
+              .strokeBorder(
+                LinearGradient(
+                  stops: [
+                    .init(
+                      color: Color.white.opacity(accent ? 0.35 : (colorScheme == .dark ? 0.14 : 0.65)),
+                      location: 0
+                    ),
+                    .init(color: Color.clear, location: 0.5)
+                  ],
+                  startPoint: .top,
+                  endPoint: .bottom
+                ),
+                lineWidth: 1
+              )
           }
       }
     }

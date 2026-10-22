@@ -28,6 +28,8 @@ concurrency:
 
 jobs:
   deploy:
+    # The fork validates the site in CI without deploying the upstream Cloudflare site.
+    if: github.repository == 'Xuanwo/cida'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
