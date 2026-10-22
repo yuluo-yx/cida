@@ -34,7 +34,7 @@ info="$app_path/Contents/Info.plist"
 /usr/bin/plutil -lint "$info"
 /usr/bin/xattr -cr "$app_path"
 "$script_dir/sign-app.sh" "$app_path" - --timestamp=none
-/usr/bin/lipo -verify_arch "$architecture" "$app_path/Contents/MacOS/Cida"
+/usr/bin/lipo "$app_path/Contents/MacOS/Cida" -verify_arch "$architecture"
 
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app_path" "$output_dir/$asset_name.zip"
 image_root="$staging_root/image"
